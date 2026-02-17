@@ -1,0 +1,26 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "sympy-paper-printer"
+version = "0.1.0"
+description = "Notebook-friendly SymPy + Markdown display helpers and a simple p2j/nbconvert/pandoc report builder."
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+  "sympy>=1.10",
+]
+
+[project.optional-dependencies]
+notebook = ["ipython>=8",
+  "ipykernel>=6","matplotlib", "scipy", "p2j",   "pypandoc>=1.13",
+  "pypandoc-binary>=1.13", "nbconvert>=7"]
+report = []
+dev = ["pytest>=8", "ruff>=0.5"]
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
