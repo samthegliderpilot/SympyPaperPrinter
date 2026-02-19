@@ -43,33 +43,36 @@ def dotify_time_derivatives(expr: sp.Expr, t: sp.Symbol) -> sp.Expr:
     Display-only: Replace first/second time derivatives of f(t) with symbols \\dot{f}, \\ddot{f}.
     Also replace f(t) with f (symbol) so equations look like classical mechanics notation.
 
-    Only targets Derivative nodes w.r.t. exactly t.
+    Only targets Derivative nodes where all differentiation variables are exactly t.
     """
     replacements: dict[sp.Expr, sp.Expr] = {}
 
-    # Replace 2nd order first so it doesn't get eaten by 1st order replace.
     for d in expr.atoms(sp.Derivative):
-        if d.variables != (t,):
+        # Count how many times we differentiate w.r.t. t
+        vars_ = d.variables
+        if not vars_:
             continue
-        inner = d.expr
-        # First derivative: d/dt inner
-        # Second derivative: if inner itself is Derivative(..., t)
-        if isinstance(inner, sp.Derivative) and inner.variables == (t,):
-            base = inner.expr
-            base_name = _function_display_name(base)
-            if base_name is None:
-                continue
+        if any(v != t for v in vars_):
+            continue
+
+        order = len(vars_)
+        base = d.expr
+        base_name = _function_display_name(base)
+        if base_name is None:
+            continue
+
+        if order == 1:
+            replacements[d] = sp.Symbol(rf"\dot{{{base_name}}}")
+        elif order == 2:
             replacements[d] = sp.Symbol(rf"\ddot{{{base_name}}}")
         else:
-            base_name = _function_display_name(inner)
-            if base_name is None:
-                continue
-            replacements[d] = sp.Symbol(rf"\dot{{{base_name}}}")
+            # Optional: represent higher-order derivatives compactly.
+            # If you prefer "leave as Derivative(...)" for order>2, just `continue` here.
+            replacements[d] = sp.Symbol(rf"{base_name}^{{({order})}}")
 
-    # Now replace base f(t) -> f (symbol) for functions of t
-    # We only do it for undefined functions called with t as an argument.
+    # Replace base f(t) -> f (symbol) for undefined functions called with t
     for fcall in expr.atoms(AppliedUndef):
-        if t in fcall.free_symbols and any(arg == t for arg in fcall.args):
+        if any(arg == t for arg in fcall.args):
             replacements[fcall] = sp.Symbol(fcall.func.__name__)
 
     if not replacements:
