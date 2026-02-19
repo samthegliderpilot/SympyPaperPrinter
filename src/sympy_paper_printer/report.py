@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import shutil
 import subprocess
-from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional, Sequence
 
@@ -20,57 +19,91 @@ def build_report(
     csl: Optional[str | Path] = None,
     keep_directory_clean: bool = True,
     execute: bool = True,
+    build_dir: str | Path = "_build_spp",
 ) -> Path:
     """
-    Convert a #%%-cell Python script into an executed markdown report and then pandoc it to fmt.
+    Build a report from a percent-format .py file using:
+      1) jupytext:  .py -> .ipynb
+      2) nbconvert: execute -> markdown (no input)
+      3) pandoc:    markdown -> output (pdf/docx/etc.)
 
-    Requires external tools available on PATH:
-      - p2j
-      - jupyter (nbconvert)
-      - pandoc
+    External tools required on PATH:
+      - jupytext (pip-installed; provides CLI)
+      - jupyter  (pip-installed; provides nbconvert CLI)
+      - pandoc   (system install usually)
+      - for pdf: a LaTeX distribution (MiKTeX/TeX Live)
 
-    Returns output path.
+    Notes:
+      - Uses a build directory by default to avoid polluting your source folder.
+      - If citations are desired, provide both bib and csl (or place exactly one .bib and one .csl next to the script).
+
+    Returns the output path.
     """
     py = Path(python_file).resolve()
     if not py.is_file():
         raise FileNotFoundError(py)
 
-    _require_tool("p2j")
+    _require_tool("jupytext")
     _require_tool("jupyter")
     _require_tool("pandoc")
 
+    src_dir = py.parent
+
     out = Path(output).resolve() if output is not None else py.with_suffix(f".{fmt}")
-    directory = py.parent
+    if out.suffix.lower() != f".{fmt.lower()}":
+        # If user passes output with a different suffix, trust output.
+        pass
 
-    ipynb = py.with_suffix(".ipynb")
-    md = py.with_suffix(".md")
+    bib_path, csl_path = _resolve_bib_csl(src_dir, bib=bib, csl=csl)
 
-    bib_path, csl_path = _resolve_bib_csl(directory, bib=bib, csl=csl)
+    # Build directory (next to the script)
+    build_root = (src_dir / build_dir).resolve()
+    build_root.mkdir(parents=True, exist_ok=True)
 
-    # Cleanups: delete only files created during the build, not “everything new in dir”.
-    # This is safer than a blanket directory diff.
-    created_files: list[Path] = []
+    # Work on copies in build dir
+    ipynb = build_root / f"{py.stem}.ipynb"
+    md = build_root / f"{py.stem}.md"
+    files_dir = build_root / f"{py.stem}_files"
+
+    created_paths: list[Path] = []
 
     try:
-        # 1) p2j
-        _run(["p2j", str(py), "-o"], cwd=directory)
-        created_files.append(ipynb)
+        # 1) jupytext: py -> ipynb
+        _run(
+            ["jupytext", "--to", "ipynb", str(py), "--output", str(ipynb)],
+            cwd=src_dir,
+        )
+        created_paths.append(ipynb)
 
-        # 2) nbconvert -> markdown
+        # 2) nbconvert: execute -> markdown (no input)
         nbconvert_cmd = ["jupyter", "nbconvert"]
         if execute:
             nbconvert_cmd += ["--execute"]
         nbconvert_cmd += ["--to", "markdown", "--no-input", str(ipynb)]
-        _run(nbconvert_cmd, cwd=directory)
-        created_files.append(md)
 
-        _remove_single_percent_lines(md)
+        # Important: run with cwd=build_root so markdown + *_files land in build dir
+        _run(nbconvert_cmd, cwd=build_root)
+        created_paths.append(md)
+        if files_dir.exists():
+            created_paths.append(files_dir)
 
-        # 3) pandoc
-        pandoc_cmd = ["pandoc", str(md), "-s", "-N", "-o", str(out)]
+        _sanitize_markdown(md)
+
+        # 3) pandoc: md -> output
+        pandoc_cmd = [
+            "pandoc",
+            str(md.name),
+            "-s",
+            "-N",
+            "-o",
+            str(out),
+            "-V",
+            "geometry:margin=1in",
+        ]
         if bib_path and csl_path:
             pandoc_cmd += ["--citeproc", f"--bibliography={bib_path}", f"--csl={csl_path}"]
-        _run(pandoc_cmd, cwd=directory)
+
+        _run(pandoc_cmd, cwd=build_root)
 
         if not out.is_file():
             raise ReportBuildError(f"Expected output was not created: {out}")
@@ -79,13 +112,42 @@ def build_report(
 
     finally:
         if keep_directory_clean:
-            # Remove intermediate build artifacts we know we created.
-            for p in created_files:
-                try:
-                    if p.is_file():
-                        p.unlink()
-                except Exception:
-                    pass
+            _cleanup_build_artifacts(created_paths)
+            # If build dir is empty afterwards, remove it
+            try:
+                if build_root.exists() and build_root.is_dir() and not any(build_root.iterdir()):
+                    build_root.rmdir()
+            except Exception:
+                pass
+
+
+def _sanitize_markdown(md_path: Path) -> None:
+    """
+    Small, safe cleanup of nbconvert markdown output.
+
+    - Removes p2j-style lone '%' lines (harmless if absent)
+    - (Optionally extend this later if you find other consistent artifacts)
+    """
+    if not md_path.exists():
+        return
+
+    lines = md_path.read_text(encoding="utf-8").splitlines(True)
+    lines = [ln for ln in lines if ln.strip("\n") != "%"]
+    md_path.write_text("".join(lines), encoding="utf-8")
+
+
+def _cleanup_build_artifacts(paths: Sequence[Path]) -> None:
+    """
+    Delete known intermediates we created. Works only inside build dir by design.
+    """
+    for p in paths:
+        try:
+            if p.is_dir():
+                shutil.rmtree(p)
+            elif p.is_file():
+                p.unlink()
+        except Exception:
+            pass
 
 
 def _resolve_bib_csl(directory: Path, *, bib: Optional[str | Path], csl: Optional[str | Path]) -> tuple[Optional[Path], Optional[Path]]:
@@ -108,15 +170,6 @@ def _resolve_bib_csl(directory: Path, *, bib: Optional[str | Path], csl: Optiona
         )
 
     return bib_path, csl_path
-
-
-def _remove_single_percent_lines(md_path: Path) -> None:
-    # p2j leaves a '%' line per #%% cell; strip them.
-    if not md_path.exists():
-        return
-    lines = md_path.read_text(encoding="utf-8").splitlines(True)
-    filtered = [ln for ln in lines if ln.strip("\n") != "%"]
-    md_path.write_text("".join(filtered), encoding="utf-8")
 
 
 def _require_tool(name: str) -> None:

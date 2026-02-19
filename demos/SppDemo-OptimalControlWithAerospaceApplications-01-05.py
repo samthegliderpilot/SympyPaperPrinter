@@ -1,20 +1,23 @@
-#%%
+# %%
 import os
 import sympy as sy
 from sympy.core import evaluate
 
 import sympy_paper_printer as spp
 
-g = 9.80665  # m/sec
-t_sym = sy.Symbol("t")  # separate from numpy t later
+# needed to capture plots
+from IPython import get_ipython
+ip = get_ipython()
+if ip is not None:
+    ip.run_line_magic("matplotlib", "inline")
 
-# (Optional) global-ish config tweaks:
-# spp.configure(clean_equations=True, dotify_time_symbol="t")
+g = 9.80665  # m/sec
+t_sym = sy.Symbol("t") 
 
 spp.md(r"# Sympy Paper Printer Demo {-}")
 spp.md(r"## Solution to Chapter 01 Problem 05 of Optimal Control with Aerospace Applications @LonguskiGuzmanAndPrussing {-}")
 spp.md(
-    r"This back-of-the-chapter problem is all about Hohmann and bi-parabolic satellite transfers. "
+    r"This end-of-the-chapter problem is all about Hohmann and bi-parabolic satellite transfers. "
     r"In addition to being an interesting study in orbital maneuvers, this problem shows many tips and tricks "
     r"to solving problems like this symbolically and numerically, and how to transition between the two."
 )
@@ -77,8 +80,7 @@ spp.md(
     r"I tried various techniques in sympy to do that, but this may not be exactly what the author is looking for."
 )
 
-#%%
-# --- 5-b
+# %%
 spp.md(r"### 5-b {-}")
 spp.md(r"We do the same thing, but this time we sum the circular speed with the parabolic speeds.")
 
@@ -95,8 +97,7 @@ dvTotParaSubbed = vTotParaEq.subs(rf, rfFull).subs(r0, roITObeta)
 dvParSubs = sy.solve(dvTotParaSubbed, beta)[0]
 spp.eq(dvTol, dvParSubs)
 
-#%%
-# --- 5-c
+# %%
 spp.md(r"### 5-c {-}")
 spp.md(
     r"We make the plot comparing the two transfer types. Note that since the problem assumes $r_f > r_o$, "
@@ -124,10 +125,10 @@ _ = ax.set(
 )
 plt.show()
 
+#spp.md(f"![Plot]({plot_path})")
 spp.md(r"We can see that the cutoff is about a ratio of 12, likely the 11.94 value quoted earlier in the chapter.")
 
-#%%
-# --- 5-d
+# %%
 spp.md(r"### 5-d {-}")
 spp.md(
     r"Here we will use a numerical root-finder to find when the two transfer techniques equal each other. "
@@ -151,8 +152,7 @@ spp.eq(r"\alpha", ans.root)
 
 spp.md("This matches the values a few pages earlier in the textbook.")
 
-#%%
-# --- Acknowledgments / References
+# %%
 spp.md(r"### Acknowledgments {-}")
 spp.md(
     "Many thanks for the Citation Style Language website for making citations so easy and simple @CslDefinition. "
@@ -166,9 +166,13 @@ spp.md(r"### References {-}")
 
 if "__file__" in globals() or "__file__" in locals():
     dir_path = os.path.dirname(os.path.realpath(__file__))
+    build_files_path = os.path.join(dir_path, "_ssp_artifats")
     thisFile = os.path.join(dir_path, "SppDemo-OptimalControlWithAerospaceApplications-01-05.py")
-
-    # New API: build_report(pyfile, fmt="pdf", bib=..., csl=...)
+    plot_path = os.path.join(build_files_path, "hohmann_vs_biparabolic.png")
+    if not os.path.isdir(build_files_path):
+        os.mkdir(build_files_path)
+    fig.savefig(plot_path, dpi=200, bbox_inches="tight")
+    plt.close(fig)
     # If a .bib and .csl exist in the same folder, the builder can auto-detect them.
-    spp.build_report(thisFile, fmt="pdf")
+    spp.build_report(thisFile, fmt="pdf", build_dir=build_files_path)
     spp.md("done")

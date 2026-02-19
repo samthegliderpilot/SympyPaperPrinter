@@ -15,7 +15,7 @@ dependencies = [
 [project.optional-dependencies]
 notebook = ["ipython>=8",
   "ipykernel>=6","matplotlib", "scipy", "p2j",   "pypandoc>=1.13",
-  "pypandoc-binary>=1.13", "nbconvert>=7"]
+  "pypandoc-binary>=1.13", "nbconvert>=7",  "jupytext>=1.16",]
 report = []
 dev = ["pytest>=8", "ruff>=0.5"]
 
